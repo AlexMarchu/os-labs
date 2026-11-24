@@ -15,13 +15,10 @@ std::uint64_t now_ms();
 void sleep_ms(std::uint32_t ms);
 std::string now_datetime_str();
 
-// ---- Shared memory + межпроцессный mutex ----
-
 struct SharedState {
     std::int64_t counter;
-    // позже: pid лидера, флаги занятости копий и т.д.
 #if defined(PLATFORM_POSIX)
-    pthread_mutex_t mutex;   // только для POSIX; на Windows не используется
+    pthread_mutex_t mutex;
 #endif
 };
 
@@ -64,8 +61,6 @@ private:
     Impl* impl_;
 };
 
-// ---- Дочерний процесс ----
-
 class ChildProcess {
 public:
     ChildProcess();
@@ -93,8 +88,6 @@ public:
     LeaderLock(const LeaderLock&)            = delete;
     LeaderLock& operator=(const LeaderLock&) = delete;
 
-    // true  — этот процесс стал лидером (объект создан им первым)
-    // false — лидер уже есть (объект существовал) или ошибка
     bool try_acquire(const std::string& name);
 
     void release();
