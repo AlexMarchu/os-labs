@@ -13,9 +13,6 @@ const char* kMutexName     = "logger_lab3_mutex";
 const char* kLeaderName    = "logger_lab3_leader";
 }
 
-// ---------------------------------------------------------------------------
-// Режим "копия"
-// ---------------------------------------------------------------------------
 static int run_copy(const std::string& role) {
     Log log("logger.log");
 
@@ -35,7 +32,6 @@ static int run_copy(const std::string& role) {
 #endif
     if (!mtx.init(mtx_ptr, created, kMutexName)) return 1;
 
-    // helper: прочитать counter под mutex
     auto read_counter = [&]() -> std::int64_t {
         mtx.lock();
         auto v = state->counter;
@@ -81,11 +77,8 @@ static int run_copy(const std::string& role) {
     return 2;
 }
 
-// ---------------------------------------------------------------------------
-// Основной процесс
-// ---------------------------------------------------------------------------
 int main(int argc, char** argv) {
-    // Копия?
+
     if (argc >= 2) {
         std::string a = argv[1];
         if (a == "--copy1" || a == "--copy2") {
@@ -99,7 +92,6 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // --- shared region ---
     platform::SharedRegion region;
     bool created = false;
     if (!region.open(kShmName, sizeof(platform::SharedState), created)) {
@@ -117,14 +109,11 @@ int main(int argc, char** argv) {
 #endif
     if (!mtx.init(mtx_ptr, created, kMutexName)) return 1;
 
-    // --- лидерство ---
     platform::LeaderLock leader;
     bool is_leader = leader.try_acquire(kLeaderName);
 
-    // --- лог: пункт 1 лабы ---
     log.write("program started, is_leader=" + std::string(is_leader ? "yes" : "no"));
 
-    // --- CLI-поток ---
     std::atomic<bool> quit{false};
     std::thread cli([&]{
         std::string line;
@@ -161,7 +150,6 @@ int main(int argc, char** argv) {
               << " leader=" << (is_leader ? "yes" : "no")
               << "\nCommands: set <N>, q\n";
 
-    // --- три таймера ---
     std::uint64_t next_300  = platform::now_ms() + 300;
     std::uint64_t next_1000 = platform::now_ms() + 1000;
     std::uint64_t next_3000 = platform::now_ms() + 3000;
@@ -172,7 +160,6 @@ int main(int argc, char** argv) {
         platform::sleep_ms(10);
         std::uint64_t now = platform::now_ms();
 
-        // ---- 300 мс: counter += 1 (все процессы!) ----
         if (now >= next_300) {
             next_300 += 300;
             mtx.lock();
@@ -180,7 +167,6 @@ int main(int argc, char** argv) {
             mtx.unlock();
         }
 
-        // ---- 1000 мс: лидер пишет counter в лог ----
         if (now >= next_1000) {
             next_1000 += 1000;
             if (is_leader) {
@@ -191,13 +177,12 @@ int main(int argc, char** argv) {
             }
         }
 
-        // ---- 3000 мс: лидер порождает копии ----
         if (now >= next_3000) {
             next_3000 += 3000;
             if (is_leader) {
                 int code = 0;
 
-                // copy1: если предыдущая ещё жива — rejected, иначе spawn
+                // если предыдущая ещё жива - rejected
                 if (child1.try_reap(&code)) {
                     log.write("copy1 finished with code " + std::to_string(code));
                     child1.close();
@@ -211,7 +196,6 @@ int main(int argc, char** argv) {
                         log.write("spawn copy1 failed");
                 }
 
-                // copy2: аналогично
                 if (child2.try_reap(&code)) {
                     log.write("copy2 finished with code " + std::to_string(code));
                     child2.close();
@@ -228,16 +212,12 @@ int main(int argc, char** argv) {
         }
     }
 
-    // --- завершение ---
     log.write("program exiting");
     if (is_leader) {
         leader.release();
     }
 
-    // child.close() в деструкторах ChildProcess
     if (cli.joinable()) {
-        // На Windows нет простого способа разбудить getline;
-        // для лабы detach допустимо, процесс всё равно завершится.
         cli.detach();
     }
 

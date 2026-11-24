@@ -38,10 +38,6 @@ std::string hello() {
     return "Hello from Windows build";
 }
 
-// ---------------------------------------------------------------------------
-// SharedRegion
-// ---------------------------------------------------------------------------
-
 struct SharedRegion::Impl {
     HANDLE h_map   = nullptr;
     void*  ptr     = nullptr;
@@ -92,13 +88,7 @@ void SharedRegion::close() {
     impl_->sz = 0;
 }
 
-void SharedRegion::unlink(const std::string&) {
-    // На Windows именованный mapping исчезает, когда закрыт последний handle.
-}
-
-// ---------------------------------------------------------------------------
-// SharedMutex
-// ---------------------------------------------------------------------------
+void SharedRegion::unlink(const std::string&) {}
 
 struct SharedMutex::Impl {
     HANDLE h_mutex = nullptr;
@@ -143,16 +133,13 @@ ChildProcess::~ChildProcess() {
 
 bool ChildProcess::spawn(const std::string& arg) {
     if (impl_->h_process) {
-        // уже запущен — не перезапускаем
         return false;
     }
 
-    // Путь к текущему exe
     char exe_path[MAX_PATH];
     DWORD n = GetModuleFileNameA(nullptr, exe_path, MAX_PATH);
     if (n == 0 || n == MAX_PATH) return false;
 
-    // Командная строка: "<exe_path> <arg>"
     std::string cmdline = std::string("\"") + exe_path + "\" " + arg;
 
     STARTUPINFOA si{};
@@ -160,17 +147,17 @@ bool ChildProcess::spawn(const std::string& arg) {
     PROCESS_INFORMATION pi{};
 
     if (!CreateProcessA(
-            nullptr,                 // app name — берём из cmdline
-            cmdline.data(),          // lpCommandLine (изменяемая строка!)
+            nullptr,
+            cmdline.data(),
             nullptr, nullptr,
-            FALSE,                   // не наследовать handle'ы
+            FALSE, 
             0, nullptr, nullptr,
             &si, &pi)) {
         return false;
     }
 
     impl_->h_process = pi.hProcess;
-    CloseHandle(pi.hThread);          // поток не нужен
+    CloseHandle(pi.hThread);
     return true;
 }
 
@@ -179,10 +166,10 @@ bool ChildProcess::try_reap(int* exit_code) {
 
     DWORD wr = WaitForSingleObject(impl_->h_process, 0);
     if (wr == WAIT_TIMEOUT) {
-        return false;                 // ещё работает
+        return false;
     }
     if (wr != WAIT_OBJECT_0) {
-        return false;                 // ошибка — считаем «не завершился»
+        return false;
     }
 
     if (exit_code) {
@@ -219,18 +206,15 @@ LeaderLock::~LeaderLock() {
 }
 
 bool LeaderLock::try_acquire(const std::string& name) {
-    if (impl_->h) return true;  // уже держим
+    if (impl_->h) return true;
 
     std::string full_name = "Local\\" + name;
 
-    // bInitialOwner = TRUE: если объект создаётся впервые —
-    // текущий процесс сразу становится владельцем (атомарно).
     HANDLE h = CreateMutexA(nullptr, TRUE, full_name.c_str());
     if (!h) return false;
 
     bool already_exists = (GetLastError() == ERROR_ALREADY_EXISTS);
     if (already_exists) {
-        // mutex уже был — мы не лидер. Не ждём, просто отпускаем handle.
         CloseHandle(h);
         return false;
     }
